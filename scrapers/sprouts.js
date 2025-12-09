@@ -70,8 +70,38 @@ async function scrollToLoadAll(page) {
   }
 }
 
+function parsePriceInfo(raw) {
+  const split1 = raw.toLowerCase().split("original price: ");
+  const currentPrice = split1[0].split(": ")[1].split("$")[1];
+  var originalPrice = split1[1];
+  var percentOff;
+  if (originalPrice != null) {
+    originalPrice = originalPrice.split("$")[1];
+    percentOff = split1[1].replaceAll("$" + originalPrice.toString(), "");
+  }
+
+  return { currentPrice, originalPrice, percentOff };
+}
+
+async function loadMore(page, level) {
+  console.log("loading more " + level);
+  try {
+    await page.waitForSelector("span.e-1evx3ij", {
+      timeout: 20000,
+    });
+    await page.evaluate(() => {
+      document.querySelector("span.e-1evx3ij")?.click();
+    });
+
+    await scrollToLoadAll(page);
+  } catch (err) {
+    console.log(err);
+    return;
+  }
+}
+
 // Scrape Sprouts search page
-async function scrapeSprouts(ingredient) {
+async function scrapeSprouts(ingredient, loadAll = false, topReturnN = 5) {
   const PAGE_URL = `https://shop.sprouts.com/store/sprouts/s?k=${encodeURIComponent(
     ingredient
   )}`;
@@ -82,7 +112,10 @@ async function scrapeSprouts(ingredient) {
       headless: false,
     });
     const page = await browser.newPage();
-
+    await page.setViewport({
+      width: 1280,
+      height: 900, // adjust height here
+    });
     await page.goto(PAGE_URL, { waitUntil: "domcontentloaded" });
     // Close Cookie Popup
     try {
@@ -94,102 +127,108 @@ async function scrapeSprouts(ingredient) {
     }
     // Select Location
     try {
-      await page.waitForSelector(".e-17shihj", { timeout: 5000 });
-      await page.click(".e-17shihj");
+      await page.waitForSelector("button.e-17shihj", { timeout: 5000 });
+
+      await page.evaluate(() => {
+        document.querySelector("button.e-17shihj")?.click();
+      });
+
       console.log("Selected");
-    } catch {
-      console.log("No shopping selection popup.");
+    } catch (err) {
+      console.log("No shopping selection popup: " + err);
     }
     await scrollToLoadAll(page);
+    console.log(loadAll);
+    if (loadAll) {
+      await loadMore(page, 0);
+    }
     //Expand Item
     const productHTMLList = [];
     try {
-      await page.waitForSelector("a.e-nn60uq", { timeout: 5000 });
+      await page.waitForSelector("a.e-nn60uq", {
+        timeout: loadAll ? 5000 : 10000,
+      });
       // Get all item elements
       const items = await page.$$("a.e-nn60uq");
-      console.log(items.length);
-      for (let i = 0; i < items.length; i++) {
+      for (
+        let i = 0;
+        i < (loadAll ? items.length : Math.min(items.length, topReturnN));
+        i++
+      ) {
         await items[i].click();
-        await page.waitForSelector("span.e-1q8o1gj", { timeout: 5000 });
-        productHTMLList.concat(
+        await page.waitForSelector("span.e-1q8o1gj", {
+          timeout: loadAll ? 5000 : 10000,
+        });
+        await productHTMLList.push(
           await page.evaluate(() => document.body.innerHTML)
         );
         await page.click("button.e-10bwqtf");
-        await page.waitForSelector("a.e-nn60uq", { timeout: 5000 });
+        await page.waitForSelector("a.e-nn60uq", {
+          timeout: loadAll ? 5000 : 10000,
+        });
       }
 
       console.log("Item expanded.");
-    } catch {
-      console.log("Item not expanded");
+    } catch (err) {
+      console.log("Item not expanded: " + err);
     }
-    // Expand Item
-    // try {
-    //   await page.waitForSelector(".e-1q8o1gj", { timeout: 5000 });
 
-    //   const html = await page.evaluate(() => document.body.innerHTML);
-    //   console.log("HTML extracted");
+    try {
+      console.log(productHTMLList.length);
+      for (let i = 0; i < productHTMLList.length; i++) {
+        const html = productHTMLList[i];
+        const $ = cheerio.load(html);
 
-    //   const $ = cheerio.load(html);
+        let eventDomElement = $(".e-l0tco0");
 
-    //   let eventDomElements = $(".e-egal4z").children("li");
-    //   eventDomElements = eventDomElements.slice(
-    //     0,
-    //     Math.min(4, eventDomElements.length)
-    //   );
+        // get product name
+        const item = eventDomElement.find("span.e-1q8o1gj").text();
+        var deal = eventDomElement.find("div.e-10j5a5k").text();
+        if (deal.length == 0) {
+          deal = eventDomElement.find("span.e-1nxcnt6").text();
+          try {
+            deal = deal.toLowerCase().includes("buy")
+              ? deal.split(")")[1].slice(0, -1)
+              : "";
+          } catch {
+            deal = "";
+          }
+        }
 
-    //   eventDomElements.each((_, element) => {
-    //     // get product name
-    //     const item = $(element).find("div.e-147kl2c").text();
-    //     var deal = $(element).find("div.e-13vobab").text();
-    //     // get product price
-    //     var priceElement = $(element).find("span.screen-reader-only").text();
-    //     var price;
-    //     if (priceElement.toLowerCase().includes("original")) {
-    //       {
-    //         priceElement = priceElement
-    //           .toLowerCase()
-    //           .replaceAll("original", "")
-    //           .split(" ");
-    //         price = priceElement[priceElement.length - 3];
-    //         deal =
-    //           Math.round(
-    //             ((toNumber(priceElement[priceElement.length - 1]) -
-    //               toNumber(price)) /
-    //               toNumber(priceElement[priceElement.length - 1])) *
-    //               100
-    //           ).toString() +
-    //           "% off [Original: " +
-    //           priceElement[priceElement.length - 1] +
-    //           "]";
-    //       }
-    //     } else {
-    //       priceElement = priceElement.split(" ");
-    //       price = priceElement[priceElement.length - 1];
-    //     }
-    //     console.log(priceElement);
+        // get product price
+        const priceElement = eventDomElement.find("span.e-ceqez7").text();
+        const { currentPrice, originalPrice, percentOff } =
+          parsePriceInfo(priceElement);
+        if (percentOff) {
+          deal =
+            percentOff.toString() +
+            "% [Original Price: " +
+            originalPrice.toString() +
+            "]";
+        }
+        // get product tags
+        const tags = [];
+        const tagElements = $("div.e-13d259n");
+        tagElements.each((_, element) => {
+          const tag = $(element).find("span").text().toLowerCase();
 
-    //     // get product image
-    //     const image_srcset = $(element).find("img").attr("srcset") || "";
-    //     const imageCandidates = image_srcset.split(",").map((c) => c.trim());
-    //     const imageUrls = imageCandidates.map((c) => c.split(" ")[0]);
-    //     const imageUrlsCombined = [];
-    //     for (let i = 0; i < imageUrls.length; i += 2) {
-    //       const combined = imageUrls[i] + "," + (imageUrls[i + 1] || "");
-    //       imageUrlsCombined.push(combined);
-    //     }
+          if (tag != "sprouts brand" && tag != "new") {
+            tags.push(tag);
+          }
+        });
 
-    //     const image = imageUrlsCombined[0];
+        // get product image
+        const image = eventDomElement
+          .find("div.ic-image-zoomer > img")
+          .attr("src");
 
-    //     products.push({ item, price, deal, image });
-    //   });
-
-    //   //   console.log(products);
-    //   console.log("products extracted:", products.length);
-    // } catch (error) {
-    //   console.log("Failed to find selector or parse page:", error.message);
-    // } finally {
-    //   await browser.close();
-    // }
+        products.push({ item, currentPrice, deal, tags, image });
+      }
+    } catch (error) {
+      console.log("Failed to find selector or parse page:", error.message);
+    } finally {
+      await browser.close();
+    }
   })();
   console.log(products);
 }
@@ -205,8 +244,8 @@ async function saveToFirebase(ingredient, best) {
   await ref.set({ sprouts: { ...best, lastUpdated: now } }, { merge: true });
 }
 
-module.exports = async function (ingredient) {
-  const products = await scrapeSprouts(ingredient);
+module.exports = async function (ingredient, loadMore = false) {
+  const products = await scrapeSprouts(ingredient, loadMore, 10);
 
   const best = products; // simple first-product selection
   await saveToFirebase(ingredient, best);
