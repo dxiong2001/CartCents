@@ -206,6 +206,13 @@ async function scrapeSprouts(ingredient, loadAll = false, topReturnN = 5) {
             originalPrice.toString() +
             "]";
         }
+        // get product quantity
+        const priceQuantity = eventDomElement.find("div.e-k008qs").text();
+        const priceQuantitySplit = priceQuantity.split(")")[1].split(" • ");
+        console.log(priceQuantitySplit);
+        const quantity = priceQuantitySplit[0];
+        const pricePerQuantity = priceQuantitySplit[1];
+
         // get product tags
         const tags = [];
         const tagElements = $("div.e-13d259n");
@@ -222,7 +229,15 @@ async function scrapeSprouts(ingredient, loadAll = false, topReturnN = 5) {
           .find("div.ic-image-zoomer > img")
           .attr("src");
 
-        products.push({ item, currentPrice, deal, tags, image });
+        products.push({
+          item,
+          currentPrice,
+          quantity,
+          pricePerQuantity,
+          deal,
+          tags,
+          image,
+        });
       }
     } catch (error) {
       console.log("Failed to find selector or parse page:", error.message);
