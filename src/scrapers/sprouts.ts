@@ -87,11 +87,10 @@ function parsePriceInfo(raw: string): PriceInfo {
   let percentOff: string = "";
 
   if (split1[1]) {
-    originalPrice = split1[1].split("$")[1] ?? -1;
-
+    originalPrice = split1[1].split("$")[1] ?? "";
     if (originalPrice !== "") {
-      const leftover = split1[1].replace("$" + originalPrice.toString(), "");
-      percentOff = leftover;
+      const leftover = split1[1].split("$" + originalPrice);
+      percentOff = leftover[leftover.length - 1];
     }
   }
 
@@ -158,7 +157,6 @@ async function scrapeSprouts(
     // Then click the third one
     await editButtons.nth(2).click();
 
-    await page.locator("button.e-1wlht9u").waitFor();
     await page.locator("button.e-1wlht9u").click();
 
     await page.locator("input.e-t267xt").waitFor();
