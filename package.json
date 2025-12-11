@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "description": "CartCents makes sense",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "type": "module",
+  "scripts": {},
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -14,5 +13,12 @@
     "cheerio": "^1.1.2",
     "firebase-admin": "^13.6.0",
     "puppeteer": "^24.32.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^25.0.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }
