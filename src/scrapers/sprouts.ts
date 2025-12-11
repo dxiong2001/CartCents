@@ -1,4 +1,4 @@
-import puppeteer, { Page, Browser } from "puppeteer";
+import { chromium, Browser, Page } from "playwright";
 import * as cheerio from "cheerio";
 import db from "../server/firebase";
 
@@ -101,15 +101,9 @@ function parsePriceInfo(raw: string): PriceInfo {
 async function loadMore(page: Page, level: number): Promise<void> {
   console.log("loading more " + level);
   try {
-    await page.waitForSelector("span.e-1evx3ij", {
-      timeout: 20000,
-    });
-
-    await page.evaluate(() => {
-      const el = document.querySelector("span.e-1evx3ij");
-      (el as HTMLElement | null)?.click();
-    });
-
+    const loadMoreBtn = page.locator("span.e-1evx3ij");
+    await loadMoreBtn.waitFor({ timeout: 20000 });
+    await loadMoreBtn.click();
     await scrollToLoadAll(page);
   } catch (err) {
     console.log(err);
@@ -135,17 +129,17 @@ async function scrapeSprouts(
   const products: Product[] = [];
   console.log(PAGE_URL);
 
-  const browser: Browser = await puppeteer.launch({ headless: false });
+  const browser: Browser = await chromium.launch({ headless: false });
   const page: Page = await browser.newPage();
 
-  await page.setViewport({ width: 1280, height: 900 });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(PAGE_URL);
-  await page.browserContext().overridePermissions(PAGE_URL, []);
 
   // Close Cookies
   try {
-    await page.waitForSelector(".trustarc-banner-close", { timeout: 5000 });
-    await page.click(".trustarc-banner-close");
+    const cookieClose = page.locator(".trustarc-banner-close");
+    await cookieClose.waitFor({ timeout: 5000 });
+    await cookieClose.click();
     console.log("Cookie popup dismissed.");
   } catch {
     console.log("No cookie popup found.");
@@ -153,31 +147,28 @@ async function scrapeSprouts(
 
   // Switch location
   try {
-    await page.waitForFunction(
-      () =>
-        document.querySelectorAll("button.e-w2av07[aria-haspopup='dialog']")
-          .length >= 3,
-      { timeout: 20000 }
-    );
+    // Get all buttons with text "Edit"
+    const editButtons = page.getByRole("button", { name: /^edit$/i });
 
-    const buttons = await page.$$("button.e-w2av07[aria-haspopup='dialog']");
+    // Wait until there are at least 3
+    await page.waitForFunction((count) => {
+      return document.querySelectorAll("button").length >= count;
+    }, 3);
 
-    await buttons[buttons.length - 1].evaluate((b) => b.click());
-    await page.waitForSelector("button.e-1wlht9u", { timeout: 5000 });
-    await page.click("button.e-1wlht9u");
+    // Then click the third one
+    await editButtons.nth(2).click();
 
-    // enter zip code
-    await page.waitForSelector("input.e-t267xt");
-    await page.type("input.e-t267xt", "10024", { delay: 10 });
+    await page.locator("button.e-1wlht9u").waitFor();
+    await page.locator("button.e-1wlht9u").click();
 
-    // select applicable location
-    await page.waitForSelector("button.e-616lx5", { timeout: 5000 });
-    await page.click("button.e-616lx5");
+    await page.locator("input.e-t267xt").waitFor();
+    await page.fill("input.e-t267xt", "10024");
 
-    // select applicable store
-    await page.waitForSelector("button.e-17shihj", { timeout: 5000 });
-    await page.click("button.e-17shihj");
+    await page.locator("button.e-616lx5").click();
 
+    await page.getByText("Set as my store").first().click();
+
+    await page.locator('span:text("Confirm")').click();
     console.log("Location switched");
   } catch (err) {
     console.log("Error switching location: " + err);
@@ -192,26 +183,21 @@ async function scrapeSprouts(
   const productHTMLList: string[] = [];
 
   try {
-    await page.waitForSelector("a.e-nn60uq", {
-      timeout: loadAll ? 5000 : 10000,
-    });
+    const items = page.locator("a.e-nn60uq");
+    await items.first().waitFor({ timeout: loadAll ? 5000 : 10000 });
 
-    const items = await page.$$("a.e-nn60uq");
+    const count = await items.count();
+    const limit = loadAll ? count : Math.min(count, topReturnN);
 
-    for (
-      let i = 0;
-      i < (loadAll ? items.length : Math.min(items.length, topReturnN));
-      i++
-    ) {
-      await items[i].click();
+    for (let i = 0; i < limit; i++) {
+      const item = items.nth(i);
+      await item.click();
 
-      await page.waitForSelector("span.e-1q8o1gj");
+      await page.locator("span.e-1q8o1gj").waitFor();
+      productHTMLList.push(await page.content());
 
-      productHTMLList.push(await page.evaluate(() => document.body.innerHTML));
-
-      await page.click("button.e-10bwqtf");
-
-      await page.waitForSelector("a.e-nn60uq");
+      await page.locator("button.e-10bwqtf").click();
+      await items.first().waitFor();
     }
   } catch (err) {
     console.log("Item expand error", err);
@@ -226,7 +212,6 @@ async function scrapeSprouts(
     const item = eventDomElement.find("span.e-1q8o1gj").text();
     let deal = eventDomElement.find("div.e-10j5a5k").text() || "";
 
-    // Price
     const priceElement = eventDomElement.find("span.e-ceqez7").text();
     const { currentPrice, originalPrice, percentOff } =
       parsePriceInfo(priceElement);
@@ -235,14 +220,12 @@ async function scrapeSprouts(
       deal = `${percentOff}% [Original Price: ${originalPrice}]`;
     }
 
-    // Quantity
     const qtyRaw = eventDomElement.find("div.e-k008qs").text();
     const [quantity, pricePerQuantity] = qtyRaw
       .split(")")[1]
       .split(" • ")
       .map((s: string) => s.trim());
 
-    // Tags
     const tags: string[] = [];
     $("div.e-13d259n").each((_, el) => {
       const tag = $(el).find("span").text().toLowerCase();
